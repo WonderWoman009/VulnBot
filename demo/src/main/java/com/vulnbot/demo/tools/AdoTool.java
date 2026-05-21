@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.util.Base64;
 import java.util.Map;
 
@@ -41,7 +42,7 @@ public class AdoTool {
         this.adoFeatureId = getEnv("ADO_FEATURE_ID");
     }
 
-    public String createWorkItem(DependabotAlert alert, String fixSuggestion) {
+    public String createWorkItem(DependabotAlert alert, String fixSuggestion) throws IOException {
 
         // Check duplicate first
         if (workItemExists(alert.getNumber())) {
@@ -66,29 +67,42 @@ public class AdoTool {
 
         try (Response response = client.newCall(request).execute()) {
 
+            String responseBody = response.body().string();
+            
             if (!response.isSuccessful()) {
-                log.error("ADO API error: {} {}", 
-                    response.code(), response.message());
+                log.error("ADO API error: {} {}", response.code(), response.message());
+                log.error("ADO Error Detail: {}", responseBody); // ← Add this
                 return "FAILED";
             }
-
-            JsonNode node = mapper.readTree(response.body().string());
-            String workItemId = node.path("id").asText();
-
-            log.info("✅ Created ADO story #{} for Alert #{} [{}] {}",
-                workItemId,
-                alert.getNumber(),
-                alert.getSeverity().toUpperCase(),
-                alert.getPackageName()
-            );
-
-            return workItemId;
-
-        } catch (Exception e) {
-            log.error("Failed to create ADO story for Alert #{}: {}",
-                alert.getNumber(), e.getMessage());
-            return "FAILED";
+            // rest of code
         }
+
+        return "FAILED";
+        // try (Response response = client.newCall(request).execute()) {
+
+        //     if (!response.isSuccessful()) {
+        //         log.error("ADO API error: {} {}", 
+        //             response.code(), response.message());
+        //         return "FAILED";
+        //     }
+
+        //     JsonNode node = mapper.readTree(response.body().string());
+        //     String workItemId = node.path("id").asText();
+
+        //     log.info("✅ Created ADO story #{} for Alert #{} [{}] {}",
+        //         workItemId,
+        //         alert.getNumber(),
+        //         alert.getSeverity().toUpperCase(),
+        //         alert.getPackageName()
+        //     );
+
+        //     return workItemId;
+
+        // } catch (Exception e) {
+        //     log.error("Failed to create ADO story for Alert #{}: {}",
+        //         alert.getNumber(), e.getMessage());
+        //     return "FAILED";
+        // }
     }
 
     private boolean workItemExists(int alertNumber) {
