@@ -1,17 +1,17 @@
-// src/main/java/com/vulnbot/tools/AdoTool.java
+// tools/AdoTool.java
 package com.vulnbot.demo.tools;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.vulnbot.demo.model.DependabotAlert;
+import com.vulnbot.demo.config.TeamConfig;
+import com.vulnbot.demo.model.GroupedAlert;
 import okhttp3.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
 import java.util.Base64;
 import java.util.Map;
 
@@ -23,11 +23,11 @@ public class AdoTool {
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private final String adoPat;
-    private final String adoOrgUrl;
-    private final String adoProject;
-    private final String adoAreaPath;
-    private final String adoFeatureId;
+    @Value("${ado.pat}")
+    private String adoPat;
+
+    @Value("${ado.org.url}")
+    private String adoOrgUrl;
 
     private static final Map<String, Integer> PRIORITY_MAP = Map.of(
         "critical", 1,
@@ -36,102 +36,99 @@ public class AdoTool {
         "low",      3
     );
 
-    public AdoTool() {
-        this.adoPat       = getEnv("ADO_PAT");
-        this.adoOrgUrl    = getEnv("ADO_ORG_URL");
-        this.adoProject   = getEnv("ADO_PROJECT");
-        this.adoAreaPath  = getEnv("ADO_AREA_PATH");
-        this.adoFeatureId = getEnv("ADO_FEATURE_ID");
-    }
+    /**
+     * Create ADO story for a grouped alert under the team's area path
+     * Each team has its own area path and feature ID from config.json
+     */
+    public String createWorkItem(GroupedAlert alert, TeamConfig team) {
 
-    public String createWorkItem(DependabotAlert alert, String fixSuggestion) throws IOException {
-
-        // Check duplicate first
-        if (workItemExists(alert.getNumber())) {
-            log.info("Story already exists for Alert #{} — skipping", 
-                alert.getNumber());
+        // Check duplicate using package name + team
+        if (workItemExists(alert, team)) {
+            log.info("Story already exists for [{}] {} in team {} — skipping",
+                alert.getSeverity().toUpperCase(),
+                alert.getPackageName(),
+                team.getTeamName());
             return "SKIPPED";
         }
 
+        // ← Use team's project
         String url = String.format(
             "%s/%s/_apis/wit/workitems/$User%%20Story?api-version=7.1",
-            adoOrgUrl, adoProject
+            adoOrgUrl, team.getAdoProject()
         );
 
-        String body = buildRequestBody(alert, fixSuggestion);
+        try {
+            String body = buildRequestBody(alert, team);
 
-        Request request = new Request.Builder()
-            .url(url)
-            .header("Authorization", buildAuthHeader())
-            .post(RequestBody.create(body,
-                MediaType.parse("application/json-patch+json")))
-            .build();
+            Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", buildAuthHeader())
+                .post(RequestBody.create(body,
+                    MediaType.parse("application/json-patch+json")))
+                .build();
 
-        // try (Response response = client.newCall(request).execute()) {
+            try (Response response = client.newCall(request).execute()) {
+                String responseBody = response.body().string();
 
-        //     String responseBody = response.body().string();
-            
-        //     if (!response.isSuccessful()) {
-        //         log.error("ADO API error: {} {}", response.code(), response.message());
-        //         log.error("ADO Error Detail: {}", responseBody); // ← Add this
-        //         return "FAILED";
-        //     }
-        //     // rest of code
-        // }
+                if (!response.isSuccessful()) {
+                    log.error("ADO API error: {} {}",
+                        response.code(), response.message());
+                    log.error("ADO Error Detail: {}", responseBody);
+                    return "FAILED";
+                }
 
-        // return "FAILED";
-        try (Response response = client.newCall(request).execute()) {
+                String workItemId = mapper.readTree(responseBody)
+                    .path("id").asText();
 
-            if (!response.isSuccessful()) {
-                log.error("ADO API error: {} {}", 
-                    response.code(), response.message());
-                return "FAILED";
+                log.info("✅ Created story #{} for [{}] {} — Repos: {} — Team: {}",
+                    workItemId,
+                    alert.getSeverity().toUpperCase(),
+                    alert.getPackageName(),
+                    alert.getAffectedReposSummary(),
+                    team.getTeamName()
+                );
+
+                return workItemId;
             }
 
-            JsonNode node = mapper.readTree(response.body().string());
-            String workItemId = node.path("id").asText();
-
-            log.info("✅ Created ADO story #{} for Alert #{} [{}] {}",
-                workItemId,
-                alert.getNumber(),
-                alert.getSeverity().toUpperCase(),
-                alert.getPackageName()
-            );
-
-            return workItemId;
-
         } catch (Exception e) {
-            log.error("Failed to create ADO story for Alert #{}: {}",
-                alert.getNumber(), e.getMessage());
+            log.error("Failed to create story for {} in team {}: {}",
+                alert.getPackageName(), team.getTeamName(), e.getMessage());
             return "FAILED";
         }
     }
 
-    private boolean workItemExists(int alertNumber) {
+    private boolean workItemExists(GroupedAlert alert, TeamConfig team) {
         String url = String.format(
             "%s/%s/_apis/wit/wiql?api-version=7.1",
-            adoOrgUrl, adoProject
+            adoOrgUrl, team.getAdoProject()
         );
 
+        // Query by package name + team tag to avoid duplicates per team
         String query = String.format(
-            "{\"query\": \"SELECT [Id] FROM WorkItems WHERE " +
-            "[System.Title] CONTAINS 'VulnBot Alert #%d' " +
-            "AND [System.State] <> 'Closed'\"}",
-            alertNumber
+            "{\"query\": \"SELECT [Id] FROM WorkItems WHERE "
+            + "[System.Title] CONTAINS 'VulnBot' "
+            + "AND [System.Title] CONTAINS '%s' "
+            + "AND [System.Tags] CONTAINS '%s' "
+            + "AND [System.State] <> 'Closed'\"}",
+            alert.getPackageName().replace("'", ""),
+            team.getTeamId()
         );
 
-        Request request = new Request.Builder()
-            .url(url)
-            .header("Authorization", buildAuthHeader())
-            .header("Content-Type", "application/json")
-            .post(RequestBody.create(query,
-                MediaType.parse("application/json")))
-            .build();
+        try {
+            Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", buildAuthHeader())
+                .header("Content-Type", "application/json")
+                .post(RequestBody.create(query,
+                    MediaType.parse("application/json")))
+                .build();
 
-        try (Response response = client.newCall(request).execute()) {
-            String body = response.body().string();
-            JsonNode node = mapper.readTree(body);
-            return node.path("workItems").size() > 0;
+            try (Response response = client.newCall(request).execute()) {
+                String body = response.body().string();
+                return mapper.readTree(body)
+                    .path("workItems").size() > 0;
+            }
         } catch (Exception e) {
             log.warn("Duplicate check failed — allowing creation");
             return false;
@@ -139,115 +136,101 @@ public class AdoTool {
     }
 
     private String buildRequestBody(
-        DependabotAlert alert, String fixSuggestion) {
+            GroupedAlert alert, TeamConfig team) throws Exception {
 
-        try {
-            String severity = alert.getSeverity().toUpperCase();
-            int priority = PRIORITY_MAP.getOrDefault(
-                alert.getSeverity().toLowerCase(), 2);
+        String severity = alert.getSeverity().toUpperCase();
+        int priority = PRIORITY_MAP.getOrDefault(
+            alert.getSeverity().toLowerCase(), 2);
 
-            String title = String.format(
-                "[VulnBot] Alert #%d [%s] %s",
-                alert.getNumber(),
-                severity,
-                alert.getPackageName()
-            );
+        // Title includes affected repos
+        String title = String.format(
+            "[VulnBot] [%s] %s — Repos: %s",
+            severity,
+            alert.getPackageName(),
+            alert.getAffectedReposSummary()
+        );
 
-            String description = String.format(
-                "Auto-created by VulnBot. "
-                + "Package: %s. "
-                + "Severity: %s. "
-                + "CVE: %s. "
-                + "Vulnerable Range: %s. "
-                + "Safe Version: %s. "
-                + "GitHub Alert: %s. "
-                + "Fix: %s",
-                alert.getPackageName(),
-                severity,
-                alert.getSecurityAdvisory().getCveId() != null
-                    ? alert.getSecurityAdvisory().getCveId() : "N/A",
-                alert.getSecurityVulnerability().getVulnerableVersionRange(),
-                alert.getSafeVersion(),
-                alert.getHtmlUrl(),
-                fixSuggestion != null ? fixSuggestion : "Phase 2 pending"
-            );
-
-            // Build using Jackson — safe, no manual escaping needed
-            ArrayNode patchDocument = mapper.createArrayNode();
-
-            // Title
-            patchDocument.add(mapper.createObjectNode()
-                .put("op", "add")
-                .put("path", "/fields/System.Title")
-                .put("value", title));
-
-            // Description — plain text for now, no HTML
-            patchDocument.add(mapper.createObjectNode()
-                .put("op", "add")
-                .put("path", "/fields/System.Description")
-                .put("value", description));
-
-            // Area Path
-            patchDocument.add(mapper.createObjectNode()
-                .put("op", "add")
-                .put("path", "/fields/System.AreaPath")
-                .put("value", adoAreaPath));
-
-            // Priority
-            patchDocument.add(mapper.createObjectNode()
-                .put("op", "add")
-                .put("path", "/fields/Microsoft.VSTS.Common.Priority")
-                .put("value", priority));
-
-            // Tags
-            patchDocument.add(mapper.createObjectNode()
-                .put("op", "add")
-                .put("path", "/fields/System.Tags")
-                .put("value", "VulnBot; Security; " + severity));
-
-            // Link to Feature
-            ObjectNode relationValue = mapper.createObjectNode();
-            relationValue.put("rel", "System.LinkTypes.Hierarchy-Reverse");
-            relationValue.put("url",
-                adoOrgUrl + "/_apis/wit/workitems/" + adoFeatureId);
-            relationValue.set("attributes",
-                mapper.createObjectNode()
-                    .put("comment", "Auto-linked by VulnBot"));
-
-            patchDocument.add(mapper.createObjectNode()
-                .put("op", "add")
-                .put("path", "/relations/-")
-                .set("value", relationValue));
-
-            return mapper.writeValueAsString(patchDocument);
-
-        } catch (Exception e) {
-            log.error("Failed to build request body: {}", e.getMessage());
-            return "[]";
+        // Description includes all affected repo links
+        StringBuilder repoDetails = new StringBuilder();
+        for (int i = 0; i < alert.getAffectedRepos().size(); i++) {
+            repoDetails.append(String.format(
+                "Repo: %s | Alert: %s. ",
+                alert.getAffectedRepos().get(i),
+                alert.getAlertUrls().get(i)
+            ));
         }
+
+        String description = String.format(
+            "Auto-created by VulnBot. "
+            + "Package: %s. "
+            + "Severity: %s. "
+            + "CVE: %s. "
+            + "Vulnerable Range: %s. "
+            + "Safe Version: %s. "
+            + "Affected Repos: %s. "
+            + "Repo Details: %s",
+            alert.getPackageName(),
+            severity,
+            alert.getCveId() != null ? alert.getCveId() : "N/A",
+            alert.getVulnerableRange(),
+            alert.getSafeVersion(),
+            alert.getAffectedReposSummary(),
+            repoDetails
+        );
+
+        // Tags include team ID for duplicate detection
+        String tags = String.format(
+            "VulnBot; Security; %s; %s",
+            severity, team.getTeamId()
+        );
+
+        ArrayNode patchDocument = mapper.createArrayNode();
+
+        patchDocument.add(mapper.createObjectNode()
+            .put("op", "add")
+            .put("path", "/fields/System.Title")
+            .put("value", title));
+
+        patchDocument.add(mapper.createObjectNode()
+            .put("op", "add")
+            .put("path", "/fields/System.Description")
+            .put("value", description));
+
+        patchDocument.add(mapper.createObjectNode()
+            .put("op", "add")
+            .put("path", "/fields/System.AreaPath")
+            .put("value", team.getAdoAreaPath()));
+
+        patchDocument.add(mapper.createObjectNode()
+            .put("op", "add")
+            .put("path", "/fields/Microsoft.VSTS.Common.Priority")
+            .put("value", priority));
+
+        patchDocument.add(mapper.createObjectNode()
+            .put("op", "add")
+            .put("path", "/fields/System.Tags")
+            .put("value", tags));
+
+        // Link to team's Feature
+        ObjectNode relationValue = mapper.createObjectNode();
+        relationValue.put("rel", "System.LinkTypes.Hierarchy-Reverse");
+        relationValue.put("url",
+            adoOrgUrl + "/_apis/wit/workitems/" + team.getAdoFeatureId());
+        relationValue.set("attributes",
+            mapper.createObjectNode()
+                .put("comment", "Auto-linked by VulnBot"));
+
+        patchDocument.add(mapper.createObjectNode()
+            .put("op", "add")
+            .put("path", "/relations/-")
+            .set("value", relationValue));
+
+        return mapper.writeValueAsString(patchDocument);
     }
 
     private String buildAuthHeader() {
         String encoded = Base64.getEncoder()
             .encodeToString((":" + adoPat).getBytes());
         return "Basic " + encoded;
-    }
-
-    private String escape(String value) {
-        return value
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", " ")
-            .replace("\r", "");
-    }
-
-    private String getEnv(String key) {
-        String value = System.getenv(key);
-        if (value == null || value.isBlank()) {
-            throw new IllegalStateException(
-                "Missing required environment variable: " + key
-            );
-        }
-        return value;
     }
 }

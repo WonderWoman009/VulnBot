@@ -1,0 +1,18 @@
+{
+    "teams": [
+      {
+        "teamId": "T1",
+        "teamName": "WonderWoman",
+        "adoAreaPath": "WonderWoman\\Team",
+        "adoFeatureId": "6",
+        "repos": ["db-contention-vs-cache-demo"]
+      },
+      {
+        "teamId": "T2",
+        "teamName": "Team Alpha",
+        "adoAreaPath": "WonderWoman\\Team Alpha",
+        "adoFeatureId": "193",
+        "repos": ["Nearby_Search_Service"]
+      }
+    ]
+  }

@@ -1,11 +1,9 @@
-# .github/workflows/vuln-bot.yml
-
 name: VulnBot - Security Alert Triage
 
 on:
   schedule:
-    - cron: '0 8 * * *'    # Every day 8am UTC
-  workflow_dispatch:         # Manual trigger for testing
+    - cron: '0 8 * * *'
+  workflow_dispatch:
 
 jobs:
   vuln-bot:
@@ -31,18 +29,13 @@ jobs:
 
       - name: Build VulnBot JAR
         working-directory: ./demo
-        run: mvn clean package
+        run: mvn clean package -q
 
       - name: Run VulnBot
         working-directory: ./demo
         env:
-          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
-          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
-          GITHUB_REPO_NAME: ${{ secrets.TARGET_REPO_NAME }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           ADO_PAT: ${{ secrets.ADO_PAT }}
           ADO_ORG_URL: ${{ secrets.ADO_ORG_URL }}
           ADO_PROJECT: ${{ secrets.ADO_PROJECT }}
-          ADO_AREA_PATH: ${{ secrets.ADO_AREA_PATH }}
-          ADO_FEATURE_ID: ${{ secrets.ADO_FEATURE_ID }}
-        run: |
-          java -jar target/vuln-bot-1.0.0.jar
+        run: java -jar target/vuln-bot-1.0.0.jar
