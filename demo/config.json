@@ -5,7 +5,7 @@
         "teamId": "T1",
         "teamName": "WonderWoman",
         "adoAreaPath": "WonderWoman\\Team",
-        "adoFeatureId": "6",
+        "adoFeatureId": "7",
         "repos": ["db-contention-vs-cache-demo"]
       },
       {
