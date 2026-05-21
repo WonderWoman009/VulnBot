@@ -30,6 +30,7 @@ jobs:
           restore-keys: ${{ runner.os }}-m2
 
       - name: Build VulnBot JAR
+        working-directory: ./demo
         run: mvn clean package -q
 
       - name: Run VulnBot
@@ -43,4 +44,4 @@ jobs:
           ADO_AREA_PATH: ${{ secrets.ADO_AREA_PATH }}
           ADO_FEATURE_ID: ${{ secrets.ADO_FEATURE_ID }}
         run: |
-          java -jar target/vuln-bot-1.0.0-jar-with-dependencies.jar
+          java -jar target/demo-0.0.1-jar-with-dependencies.jar
