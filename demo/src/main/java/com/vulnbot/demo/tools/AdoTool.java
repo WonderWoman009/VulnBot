@@ -7,10 +7,12 @@ import com.vulnbot.demo.model.DependabotAlert;
 import okhttp3.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
 
 import java.util.Base64;
 import java.util.Map;
 
+@Service
 public class AdoTool {
 
     private static final Logger log = LoggerFactory.getLogger(AdoTool.class);
