@@ -43,16 +43,12 @@ public class AdoTool {
     public String createWorkItem(GroupedAlert alert, TeamConfig team) {
 
         log.info("Attempting to create story for [{}] {} — Team: {}",
-        alert.getSeverity().toUpperCase(),
-        alert.getPackageName(),
+            alert.getSeverity().toUpperCase(),
+            alert.getPackageName(),
             team.getTeamName()
-        ); // ← Add this
-
-        if (workItemExists(alert, team)) {
-            // existing code
-        }
-
-        // Check duplicate using package name + team
+        );
+    
+        // Single duplicate check
         if (workItemExists(alert, team)) {
             log.info("Story already exists for [{}] {} in team {} — skipping",
                 alert.getSeverity().toUpperCase(),
@@ -60,36 +56,35 @@ public class AdoTool {
                 team.getTeamName());
             return "SKIPPED";
         }
-
-        // ← Use team's project
+    
         String url = String.format(
             "%s/%s/_apis/wit/workitems/$User%%20Story?api-version=7.1",
             adoOrgUrl, team.getAdoProject()
         );
-
+    
         try {
             String body = buildRequestBody(alert, team);
-
+    
             Request request = new Request.Builder()
                 .url(url)
                 .header("Authorization", buildAuthHeader())
                 .post(RequestBody.create(body,
                     MediaType.parse("application/json-patch+json")))
                 .build();
-
+    
             try (Response response = client.newCall(request).execute()) {
                 String responseBody = response.body().string();
-
+    
                 if (!response.isSuccessful()) {
                     log.error("ADO API error: {} {}",
                         response.code(), response.message());
                     log.error("ADO Error Detail: {}", responseBody);
                     return "FAILED";
                 }
-
+    
                 String workItemId = mapper.readTree(responseBody)
                     .path("id").asText();
-
+    
                 log.info("✅ Created story #{} for [{}] {} — Repos: {} — Team: {}",
                     workItemId,
                     alert.getSeverity().toUpperCase(),
@@ -97,17 +92,17 @@ public class AdoTool {
                     alert.getAffectedReposSummary(),
                     team.getTeamName()
                 );
-
+    
                 return workItemId;
             }
-
+    
         } catch (Exception e) {
             log.error("Failed to create story for {} in team {}: {}",
                 alert.getPackageName(), team.getTeamName(), e.getMessage());
             return "FAILED";
         }
     }
-
+    
     private boolean workItemExists(GroupedAlert alert, TeamConfig team) {
         String url = String.format(
             "%s/%s/_apis/wit/wiql?api-version=7.1",

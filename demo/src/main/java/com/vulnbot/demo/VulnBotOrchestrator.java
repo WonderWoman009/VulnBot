@@ -1,4 +1,3 @@
-// orchestrator/VulnBotOrchestrator.java
 package com.vulnbot.demo;
 
 import com.vulnbot.demo.config.ConfigLoader;
