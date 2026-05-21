@@ -42,6 +42,16 @@ public class AdoTool {
      */
     public String createWorkItem(GroupedAlert alert, TeamConfig team) {
 
+        log.info("Attempting to create story for [{}] {} — Team: {}",
+        alert.getSeverity().toUpperCase(),
+        alert.getPackageName(),
+            team.getTeamName()
+        ); // ← Add this
+
+        if (workItemExists(alert, team)) {
+            // existing code
+        }
+
         // Check duplicate using package name + team
         if (workItemExists(alert, team)) {
             log.info("Story already exists for [{}] {} in team {} — skipping",

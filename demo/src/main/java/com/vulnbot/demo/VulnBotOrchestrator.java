@@ -30,27 +30,72 @@ public class VulnBotOrchestrator {
     private AdoTool adoTool;
 
     public void run() {
+        log.info("═══════════════════════════════════════");
         log.info("🤖 VulnBot Phase 1 Starting...");
-
+        log.info("═══════════════════════════════════════");
+    
         VulnBotConfig config = configLoader.load();
-
+    
         if (config == null || config.getTeams().isEmpty()) {
             log.error("No config found — exiting");
             return;
         }
-
+    
         String githubOwner = config.getGithubOwner();
-
+    
+        int totalCreated = 0;
+        int totalSkipped = 0;
+        int totalFailed  = 0;
+    
         for (TeamConfig team : config.getTeams()) {
-            log.info("Processing Team: {}", team.getTeamName());
-
+            log.info("───────────────────────────────────────");
+            log.info("Processing Team: {} | Repos: {}",
+                team.getTeamName(), team.getRepos());
+    
             List<GroupedAlert> groupedAlerts =
-                githubTool.getGroupedAlerts(
-                    githubOwner,        // ← pass owner from config
-                    team.getRepos()
+                githubTool.getGroupedAlerts(githubOwner, team.getRepos());
+    
+            if (groupedAlerts.isEmpty()) {
+                log.info("✅ No open alerts for team {}", team.getTeamName());
+                continue;
+            }
+    
+            log.info("Found {} unique vulnerabilities for team {}",
+                groupedAlerts.size(), team.getTeamName());
+    
+            int created = 0;
+            int skipped = 0;
+            int failed  = 0;
+    
+            for (GroupedAlert alert : groupedAlerts) {
+                log.info("→ Processing: [{}] {} — Repos: {}",
+                    alert.getSeverity().toUpperCase(),
+                    alert.getPackageName(),
+                    alert.getAffectedReposSummary()
                 );
-
-            // rest unchanged
+    
+                String result = adoTool.createWorkItem(alert, team);
+    
+                switch (result) {
+                    case "SKIPPED" -> skipped++;
+                    case "FAILED"  -> failed++;
+                    default        -> created++;
+                }
+            }
+    
+            log.info("Team {} — ✅ Created: {} | ⏭️ Skipped: {} | ❌ Failed: {}",
+                team.getTeamName(), created, skipped, failed);
+    
+            totalCreated += created;
+            totalSkipped += skipped;
+            totalFailed  += failed;
         }
+    
+        log.info("═══════════════════════════════════════");
+        log.info("🤖 VulnBot Complete");
+        log.info("✅ Total Created : {}", totalCreated);
+        log.info("⏭️  Total Skipped : {}", totalSkipped);
+        log.info("❌ Total Failed  : {}", totalFailed);
+        log.info("═══════════════════════════════════════");
     }
 }
