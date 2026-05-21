@@ -4,6 +4,7 @@
       {
         "teamId": "T1",
         "teamName": "WonderWoman",
+        "adoProject": "WonderWoman",
         "adoAreaPath": "WonderWoman\\Team",
         "adoFeatureId": "7",
         "repos": ["db-contention-vs-cache-demo"]
@@ -11,6 +12,7 @@
       {
         "teamId": "T2",
         "teamName": "Team Alpha",
+        "adoProject": "WonderWoman",
         "adoAreaPath": "WonderWoman\\Team Alpha",
         "adoFeatureId": "193",
         "repos": ["Nearby_Search_Service"]

@@ -104,17 +104,19 @@ public class AdoTool {
             adoOrgUrl, team.getAdoProject()
         );
 
-        // Query by package name + team tag to avoid duplicates per team
+        log.info("Checking duplicate — URL: {}", url); // ← Add this
+
         String query = String.format(
             "{\"query\": \"SELECT [Id] FROM WorkItems WHERE "
             + "[System.Title] CONTAINS 'VulnBot' "
             + "AND [System.Title] CONTAINS '%s' "
-            + "AND [System.Tags] CONTAINS '%s' "
+            + "AND [System.AreaPath] UNDER '%s' "
             + "AND [System.State] <> 'Closed'\"}",
             alert.getPackageName().replace("'", ""),
-            team.getTeamId()
+            team.getAdoAreaPath()
         );
 
+        log.info("Duplicate check query: {}", query); // ← Add this
         try {
             Request request = new Request.Builder()
                 .url(url)
@@ -123,14 +125,17 @@ public class AdoTool {
                 .post(RequestBody.create(query,
                     MediaType.parse("application/json")))
                 .build();
-
+    
             try (Response response = client.newCall(request).execute()) {
                 String body = response.body().string();
-                return mapper.readTree(body)
-                    .path("workItems").size() > 0;
+                log.info("Duplicate check response: {}", body); // ← Add this
+                int count = mapper.readTree(body)
+                    .path("workItems").size();
+                log.info("Existing stories found: {}", count); // ← Add this
+                return count > 0;
             }
         } catch (Exception e) {
-            log.warn("Duplicate check failed — allowing creation");
+            log.warn("Duplicate check failed: {}", e.getMessage()); // ← Improve this
             return false;
         }
     }
