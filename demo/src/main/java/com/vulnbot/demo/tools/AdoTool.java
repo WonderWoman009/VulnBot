@@ -3,6 +3,8 @@ package com.vulnbot.demo.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.vulnbot.demo.model.DependabotAlert;
 import okhttp3.*;
 import org.slf4j.Logger;
@@ -137,83 +139,92 @@ public class AdoTool {
     }
 
     private String buildRequestBody(
-            DependabotAlert alert, String fixSuggestion) {
+        DependabotAlert alert, String fixSuggestion) {
 
-        String severity   = alert.getSeverity().toUpperCase();
-        String title      = String.format(
-            "[VulnBot] Alert #%d [%s] %s",
-            alert.getNumber(), severity, alert.getPackageName()
-        );
+        try {
+            String severity = alert.getSeverity().toUpperCase();
+            int priority = PRIORITY_MAP.getOrDefault(
+                alert.getSeverity().toLowerCase(), 2);
 
-        int priority = PRIORITY_MAP.getOrDefault(
-            alert.getSeverity().toLowerCase(), 2);
+            String title = String.format(
+                "[VulnBot] Alert #%d [%s] %s",
+                alert.getNumber(),
+                severity,
+                alert.getPackageName()
+            );
 
-        String description = String.format("""
-            <b>🤖 Auto-created by VulnBot</b><br/><br/>
-            <b>Package:</b> %s<br/>
-            <b>Severity:</b> %s<br/>
-            <b>CVE:</b> %s<br/>
-            <b>Vulnerable Range:</b> %s<br/>
-            <b>Safe Version:</b> %s<br/>
-            <b>GitHub Alert:</b> <a href='%s'>View Alert</a><br/><br/>
-            <b>🤖 AI Fix Recommendation:</b><br/>%s
-            """,
-            alert.getPackageName(),
-            severity,
-            alert.getSecurityAdvisory().getCveId() != null
-                ? alert.getSecurityAdvisory().getCveId() : "N/A",
-            alert.getSecurityVulnerability().getVulnerableVersionRange(),
-            alert.getSafeVersion(),
-            alert.getHtmlUrl(),
-            fixSuggestion != null ? fixSuggestion : "Phase 2 — AI analysis pending"
-        );
+            String description = String.format(
+                "Auto-created by VulnBot. "
+                + "Package: %s. "
+                + "Severity: %s. "
+                + "CVE: %s. "
+                + "Vulnerable Range: %s. "
+                + "Safe Version: %s. "
+                + "GitHub Alert: %s. "
+                + "Fix: %s",
+                alert.getPackageName(),
+                severity,
+                alert.getSecurityAdvisory().getCveId() != null
+                    ? alert.getSecurityAdvisory().getCveId() : "N/A",
+                alert.getSecurityVulnerability().getVulnerableVersionRange(),
+                alert.getSafeVersion(),
+                alert.getHtmlUrl(),
+                fixSuggestion != null ? fixSuggestion : "Phase 2 pending"
+            );
 
-        return String.format("""
-            [
-              {
-                "op": "add",
-                "path": "/fields/System.Title",
-                "value": "%s"
-              },
-              {
-                "op": "add",
-                "path": "/fields/System.Description",
-                "value": "%s"
-              },
-              {
-                "op": "add",
-                "path": "/fields/System.AreaPath",
-                "value": "%s"
-              },
-              {
-                "op": "add",
-                "path": "/fields/Microsoft.VSTS.Common.Priority",
-                "value": %d
-              },
-              {
-                "op": "add",
-                "path": "/fields/System.Tags",
-                "value": "VulnBot; Security; %s"
-              },
-              {
-                "op": "add",
-                "path": "/relations/-",
-                "value": {
-                  "rel": "System.LinkTypes.Hierarchy-Reverse",
-                  "url": "%s/_apis/wit/workitems/%s",
-                  "attributes": {"comment": "Auto-linked by VulnBot"}
-                }
-              }
-            ]
-            """,
-            escape(title),
-            escape(description),
-            adoAreaPath,
-            priority,
-            severity,
-            adoOrgUrl,
-            adoFeatureId
-        );
+            // Build using Jackson — safe, no manual escaping needed
+            ArrayNode patchDocument = mapper.createArrayNode();
+
+            // Title
+            patchDocument.add(mapper.createObjectNode()
+                .put("op", "add")
+                .put("path", "/fields/System.Title")
+                .put("value", title));
+
+            // Description — plain text for now, no HTML
+            patchDocument.add(mapper.createObjectNode()
+                .put("op", "add")
+                .put("path", "/fields/System.Description")
+                .put("value", description));
+
+            // Area Path
+            patchDocument.add(mapper.createObjectNode()
+                .put("op", "add")
+                .put("path", "/fields/System.AreaPath")
+                .put("value", adoAreaPath));
+
+            // Priority
+            patchDocument.add(mapper.createObjectNode()
+                .put("op", "add")
+                .put("path", "/fields/Microsoft.VSTS.Common.Priority")
+                .put("value", priority));
+
+            // Tags
+            patchDocument.add(mapper.createObjectNode()
+                .put("op", "add")
+                .put("path", "/fields/System.Tags")
+                .put("value", "VulnBot; Security; " + severity));
+
+            // Link to Feature
+            ObjectNode relationValue = mapper.createObjectNode();
+            relationValue.put("rel", "System.LinkTypes.Hierarchy-Reverse");
+            relationValue.put("url",
+                adoOrgUrl + "/_apis/wit/workitems/" + adoFeatureId);
+            relationValue.set("attributes",
+                mapper.createObjectNode()
+                    .put("comment", "Auto-linked by VulnBot"));
+
+            patchDocument.add(mapper.createObjectNode()
+                .put("op", "add")
+                .put("path", "/relations/-")
+                .set("value", relationValue));
+
+            return mapper.writeValueAsString(patchDocument);
+
+        } catch (Exception e) {
+            log.error("Failed to build request body: {}", e.getMessage());
+            return "[]";
+        }
     }
 
     private String buildAuthHeader() {
