@@ -34,7 +34,7 @@ jobs:
       - name: Run VulnBot
         working-directory: ./demo
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
           ADO_PAT: ${{ secrets.ADO_PAT }}
           ADO_ORG_URL: ${{ secrets.ADO_ORG_URL }}
           ADO_PROJECT: ${{ secrets.ADO_PROJECT }}
